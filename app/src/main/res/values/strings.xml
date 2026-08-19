@@ -1,0 +1,9 @@
+<resources>
+    <string name="app_name">Prototype</string>
+    <string name="main_activity_name">철도</string>
+    <string name="ncp_key">z8xzqcxqp9</string>
+
+    <!-- 대전역 중심 좌표 -->
+    <string name="center_lon">127.4342</string>
+    <string name="center_lat">36.3325</string>
+</resources>
