@@ -47,7 +47,7 @@ fun ExpandableFabMenu(
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         FloatingActionButton(
-            onClick = { expanded = !expanded },
+            onClick = { expanded = true },
             containerColor = MaterialTheme.colorScheme.background,
             contentColor = MaterialTheme.colorScheme.primary,
             shape = shape,

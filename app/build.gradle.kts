@@ -55,4 +55,6 @@ dependencies {
 
     implementation(libs.naver.map.sdk)
     implementation(libs.naver.map.compose)
+
+    implementation(libs.play.services.location)
 }

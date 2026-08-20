@@ -47,7 +47,7 @@ fun SliderSwitch(
         label = "switchThumbPosition"
     )
 
-//    Track
+    // Track
     Box(
         modifier = modifier
             .size(width, height)

@@ -1,9 +1,15 @@
 package com.example.prototype
 
+import android.Manifest
+import android.annotation.SuppressLint
+import android.content.pm.PackageManager
+import android.location.Location
 import android.os.Bundle
+import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -42,22 +48,116 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.PreviewScreenSizes
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
 import com.example.prototype.map.fab.ExpandableFabMenu
 import com.example.prototype.map.fab.vo.MapTypeMetadata
 import com.example.prototype.map.layers.RailwayWeatherMapScreen
 import com.example.prototype.map.ui.checkbox.SliderSwitch
 import com.example.prototype.ui.theme.PrototypeTheme
+import com.google.android.gms.location.FusedLocationProviderClient
+import com.google.android.gms.location.LocationServices
+import com.google.android.gms.location.Priority
+import com.google.android.gms.tasks.CancellationTokenSource
 import com.naver.maps.map.compose.MapType
 
 class MainActivity : ComponentActivity() {
+
+    private lateinit var fusedClient: FusedLocationProviderClient
+
+    private val cancellationTokenSource = CancellationTokenSource()
+
+    private val requestLocationPermission = registerForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { permissions ->
+        val preciseGranted = permissions[Manifest.permission.ACCESS_FINE_LOCATION] == true
+        val approximateGranted = permissions[Manifest.permission.ACCESS_COARSE_LOCATION] == true
+
+        when {
+            preciseGranted -> {
+                // 정확한 위치 권한 허용
+                fetchCurrentLocation()
+            }
+
+            approximateGranted -> {
+                // 대략적인 위치 권한 허용
+                fetchCurrentLocation()
+            }
+        }
+    }
+
+    private fun requestPermissionsIfNeeded() {
+        val fineGranted = ContextCompat.checkSelfPermission(
+            this, Manifest.permission.ACCESS_FINE_LOCATION
+        ) == PackageManager.PERMISSION_GRANTED
+        val coarseGranted = ContextCompat.checkSelfPermission(
+            this, Manifest.permission.ACCESS_COARSE_LOCATION
+        ) == PackageManager.PERMISSION_GRANTED
+
+        if (fineGranted || coarseGranted) {
+            fetchCurrentLocation()
+            return
+        }
+
+        requestLocationPermission.launch(
+            arrayOf(
+                Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION
+            )
+        )
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        fusedClient = LocationServices.getFusedLocationProviderClient(this)
+        fetchCurrentLocation()
         enableEdgeToEdge()
         setContent {
             PrototypeTheme {
                 PrototypeApp()
             }
         }
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun fetchCurrentLocation(
+        callback: (Location) -> Unit = {}
+    ) {
+        val hasFineLocation = ContextCompat.checkSelfPermission(
+            this, Manifest.permission.ACCESS_FINE_LOCATION
+        ) == PackageManager.PERMISSION_GRANTED
+        val hasCoarseLocation = ContextCompat.checkSelfPermission(
+            this, Manifest.permission.ACCESS_COARSE_LOCATION
+        ) == PackageManager.PERMISSION_GRANTED
+
+        if (!hasFineLocation && !hasCoarseLocation) {
+            requestPermissionsIfNeeded()
+        }
+
+        fusedClient.getCurrentLocation(
+            Priority.PRIORITY_HIGH_ACCURACY, cancellationTokenSource.token
+        ).addOnSuccessListener successListener@{ location ->
+            if (location == null) {
+                return@successListener
+            }
+
+            callback(location)
+
+            val latitude = location.latitude
+            val longitude = location.longitude
+            val height = location.altitude
+            val accuracyMeters = location.accuracy
+
+            Log.d(
+                "Location",
+                "Latitude: ${latitude}°, Longitude: ${longitude}°, Height: ${height}m, Accuracy: ${accuracyMeters}m"
+            )
+        }.addOnFailureListener { error ->
+            Log.e("LOCATION", "위치 조회 실패", error)
+        }
+    }
+
+    override fun onStop() {
+        super.onStop()
+        cancellationTokenSource.cancel()
     }
 }
 
@@ -76,57 +176,44 @@ fun PrototypeApp() {
 
     var metadataIndex: Int by rememberSaveable { mutableIntStateOf(0) }
 
-//    현재 표시 맵 타입
+    // 현재 표시 맵 타입
     val mapType: MapType = mapTypeMetadataList[metadataIndex].getMapType()
 
-//    현재 표시 맵 타입의 다크 모드 여부
+    // 현재 표시 맵 타입의 다크 모드 여부
     val isDarkMode: Boolean = mapTypeMetadataList[metadataIndex].isDarkMode()
 
-//    날씨 표시 여부
+    // 날씨 표시 여부
     var weatherVisible: Boolean by rememberSaveable { mutableStateOf(false) }
 
-//    철도 표시 여부
+    // 철도 표시 여부
     var railwayVisible: Boolean by rememberSaveable { mutableStateOf(false) }
 
-//    현재 위치 표시 여부
+    // 현재 위치 표시 여부
     var locationVisible: Boolean by rememberSaveable { mutableStateOf(false) }
 
-    Scaffold(
-        modifier = Modifier.fillMaxSize(),
-        topBar = {
-            TopAppBar(
-                title = { Text(text = "Prototype") },
-                modifier = Modifier.background(colorTheme.primary)
-            )
-        },
-        floatingActionButton = {
-            ExpandableFabMenu {
-                Column(
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    MapTileSelector(metadataIndex, changeMapType = { metadataIndex = it })
+    Scaffold(modifier = Modifier.fillMaxSize(), topBar = {
+        TopAppBar(
+            title = { Text(text = "Prototype") },
+            modifier = Modifier.background(colorTheme.primary)
+        )
+    }, floatingActionButton = {
+        ExpandableFabMenu {
+            Column(
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                MapTileSelector(metadataIndex, changeMapType = { metadataIndex = it })
 
-                    MapLayerRoundSlider(
-                        label = "날씨",
-                        state = weatherVisible,
-                        setState = { weatherVisible = it }
-                    )
+                MapLayerRoundSlider(
+                    label = "날씨", state = weatherVisible, setState = { weatherVisible = it })
 
-                    MapLayerRoundSlider(
-                        label = "철도",
-                        state = railwayVisible,
-                        setState = { railwayVisible = it }
-                    )
+                MapLayerRoundSlider(
+                    label = "철도", state = railwayVisible, setState = { railwayVisible = it })
 
-                    MapLayerRoundSlider(
-                        label = "위치",
-                        state = locationVisible,
-                        setState = { locationVisible = it }
-                    )
-                }
+                MapLayerRoundSlider(
+                    label = "위치", state = locationVisible, setState = { locationVisible = it })
             }
         }
-    ) { innerPadding ->
+    }) { innerPadding ->
         RailwayWeatherMapScreen(
             modifier = Modifier
                 .fillMaxWidth()
@@ -145,8 +232,7 @@ private fun FabMenuInlineItem(
 ) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier
-            .height(30.dp)
+        modifier = Modifier.height(30.dp)
     ) {
         Text(
             text = label,
@@ -171,8 +257,7 @@ private fun FabMenuInlineItem(
 
 @Composable
 private fun MapTileSelector(
-    metadataIndex: Int,
-    changeMapType: (Int) -> Unit
+    metadataIndex: Int, changeMapType: (Int) -> Unit
 ) {
 
     val mapTypeLabels = listOf("기본지도", "위성지도", "다크지도")
@@ -183,15 +268,12 @@ private fun MapTileSelector(
                 .fillMaxWidth()
                 .height(40.dp)
                 .background(
-                    color = MaterialTheme.colorScheme.surface,
-                    shape = bdr32dp()
+                    color = Color.Transparent, shape = bdr32dp()
                 )
                 .border(
-                    BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
-                    shape = bdr32dp()
+                    BorderStroke(1.dp, MaterialTheme.colorScheme.outline), shape = bdr32dp()
                 )
-                .clip(bdr32dp()),
-            horizontalArrangement = Arrangement.End
+                .clip(bdr32dp()), horizontalArrangement = Arrangement.End
         ) {
             mapTypeLabels.forEachIndexed { index, mapTypeLabel ->
                 TextButton(
@@ -232,9 +314,7 @@ private fun MapTileSelector(
 
 @Composable
 private fun MapLayerRoundSlider(
-    label: String,
-    state: Boolean,
-    setState: (Boolean) -> Unit
+    label: String, state: Boolean, setState: (Boolean) -> Unit
 ) {
     FabMenuInlineItem(label) {
         Row(
@@ -243,8 +323,7 @@ private fun MapLayerRoundSlider(
             modifier = Modifier.fillMaxWidth()
         ) {
             SliderSwitch(
-                checked = state,
-                onCheckedChange = setState
+                checked = state, onCheckedChange = setState
             )
         }
     }
