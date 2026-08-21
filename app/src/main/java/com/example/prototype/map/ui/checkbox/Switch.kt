@@ -19,6 +19,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 
 @Composable
@@ -61,8 +62,8 @@ fun SliderSwitch(
             contentAlignment = Alignment.CenterStart
         ) {
             Box(
-                modifier = modifier
-                    .offset(x = thumbOffsetX)
+                modifier = Modifier
+                    .offset { IntOffset(thumbOffsetX.roundToPx(), 0) }
                     .size(thumbSize)
                     .background(color = thumbColor, shape = CircleShape)
             )

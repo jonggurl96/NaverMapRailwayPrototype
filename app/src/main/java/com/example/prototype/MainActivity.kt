@@ -6,6 +6,7 @@ import android.content.pm.PackageManager
 import android.location.Location
 import android.os.Bundle
 import android.util.Log
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -45,7 +46,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.tooling.preview.PreviewScreenSizes
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
@@ -64,28 +64,21 @@ class MainActivity : ComponentActivity() {
 
     private lateinit var fusedClient: FusedLocationProviderClient
 
-    private val cancellationTokenSource = CancellationTokenSource()
-
-    private val requestLocationPermission = registerForActivityResult(
+    private val locationPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { permissions ->
         val preciseGranted = permissions[Manifest.permission.ACCESS_FINE_LOCATION] == true
         val approximateGranted = permissions[Manifest.permission.ACCESS_COARSE_LOCATION] == true
 
-        when {
-            preciseGranted -> {
-                // 정확한 위치 권한 허용
-                fetchCurrentLocation()
-            }
-
-            approximateGranted -> {
-                // 대략적인 위치 권한 허용
-                fetchCurrentLocation()
-            }
+        if (preciseGranted || approximateGranted) {
+            fetchCurrentLocation()
+        } else {
+            Toast.makeText(this, "현재 위치를 가져오려면 위치 권한이 필요합니다.", Toast.LENGTH_SHORT).show()
         }
+
     }
 
-    private fun requestPermissionsIfNeeded() {
+    private fun hasLocationPermission(): Boolean {
         val fineGranted = ContextCompat.checkSelfPermission(
             this, Manifest.permission.ACCESS_FINE_LOCATION
         ) == PackageManager.PERMISSION_GRANTED
@@ -93,12 +86,18 @@ class MainActivity : ComponentActivity() {
             this, Manifest.permission.ACCESS_COARSE_LOCATION
         ) == PackageManager.PERMISSION_GRANTED
 
-        if (fineGranted || coarseGranted) {
-            fetchCurrentLocation()
+        return fineGranted || coarseGranted
+    }
+
+    private fun requestPermissionsIfNeeded(
+        callback: (Location) -> Unit = {}
+    ) {
+        if (hasLocationPermission()) {
+            fetchCurrentLocation(callback)
             return
         }
 
-        requestLocationPermission.launch(
+        locationPermissionLauncher.launch(
             arrayOf(
                 Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION
             )
@@ -108,11 +107,12 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         fusedClient = LocationServices.getFusedLocationProviderClient(this)
-        fetchCurrentLocation()
         enableEdgeToEdge()
         setContent {
             PrototypeTheme {
-                PrototypeApp()
+                PrototypeApp(
+                    getCurrentLocation = { fetchCurrentLocation(it) }
+                )
             }
         }
     }
@@ -121,21 +121,19 @@ class MainActivity : ComponentActivity() {
     private fun fetchCurrentLocation(
         callback: (Location) -> Unit = {}
     ) {
-        val hasFineLocation = ContextCompat.checkSelfPermission(
-            this, Manifest.permission.ACCESS_FINE_LOCATION
-        ) == PackageManager.PERMISSION_GRANTED
-        val hasCoarseLocation = ContextCompat.checkSelfPermission(
-            this, Manifest.permission.ACCESS_COARSE_LOCATION
-        ) == PackageManager.PERMISSION_GRANTED
-
-        if (!hasFineLocation && !hasCoarseLocation) {
-            requestPermissionsIfNeeded()
+        if (!hasLocationPermission()) {
+            requestPermissionsIfNeeded(callback)
+            return
         }
+
+        // 요청마다 새 토큰 생성
+        val cancellationTokenSource = CancellationTokenSource()
 
         fusedClient.getCurrentLocation(
             Priority.PRIORITY_HIGH_ACCURACY, cancellationTokenSource.token
         ).addOnSuccessListener successListener@{ location ->
             if (location == null) {
+                Log.w("LOCATION", "현재 위치를 가져오지 못했습니다.")
                 return@successListener
             }
 
@@ -155,16 +153,13 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    override fun onStop() {
-        super.onStop()
-        cancellationTokenSource.cancel()
-    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
-@PreviewScreenSizes
 @Composable
-fun PrototypeApp() {
+fun PrototypeApp(
+    getCurrentLocation: (((Location) -> Unit)) -> Unit
+) {
 
     val colorTheme = MaterialTheme.colorScheme
 
@@ -191,6 +186,9 @@ fun PrototypeApp() {
     // 현재 위치 표시 여부
     var locationVisible: Boolean by rememberSaveable { mutableStateOf(false) }
 
+    // 현재 위치
+    var currentLocation: Location? by rememberSaveable { mutableStateOf(null) }
+
     Scaffold(modifier = Modifier.fillMaxSize(), topBar = {
         TopAppBar(
             title = { Text(text = "Prototype") },
@@ -199,7 +197,7 @@ fun PrototypeApp() {
     }, floatingActionButton = {
         ExpandableFabMenu {
             Column(
-                verticalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(28.dp),
             ) {
                 MapTileSelector(metadataIndex, changeMapType = { metadataIndex = it })
 
@@ -210,7 +208,12 @@ fun PrototypeApp() {
                     label = "철도", state = railwayVisible, setState = { railwayVisible = it })
 
                 MapLayerRoundSlider(
-                    label = "위치", state = locationVisible, setState = { locationVisible = it })
+                    label = "위치", state = locationVisible, setState = {
+                        locationVisible = it
+                        if (it) {
+                            getCurrentLocation { it2 -> currentLocation = it2 }
+                        } else getCurrentLocation { _ -> currentLocation = null }
+                    })
             }
         }
     }) { innerPadding ->
@@ -220,7 +223,8 @@ fun PrototypeApp() {
                 .fillMaxHeight()
                 .padding(innerPadding),
             mapType = mapType,
-            isDarkMode = isDarkMode
+            isDarkMode = isDarkMode,
+            centerLocation = currentLocation
         )
     }
 }
@@ -232,14 +236,14 @@ private fun FabMenuInlineItem(
 ) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier.height(30.dp)
+        modifier = Modifier.height(40.dp)
     ) {
         Text(
             text = label,
             modifier = Modifier
                 .fillMaxWidth(0.2f)
                 .background(color = Color.Transparent),
-            fontSize = 10.sp,
+            fontSize = 16.sp,
             fontWeight = FontWeight.Bold,
             textAlign = TextAlign.Center
         )
@@ -266,12 +270,12 @@ private fun MapTileSelector(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(40.dp)
+                .height(48.dp)
                 .background(
                     color = Color.Transparent, shape = bdr32dp()
                 )
                 .border(
-                    BorderStroke(1.dp, MaterialTheme.colorScheme.outline), shape = bdr32dp()
+                    BorderStroke(2.dp, MaterialTheme.colorScheme.outline), shape = bdr32dp()
                 )
                 .clip(bdr32dp()), horizontalArrangement = Arrangement.End
         ) {
@@ -296,7 +300,8 @@ private fun MapTileSelector(
                 ) {
                     Text(
                         text = mapTypeLabel,
-                        fontSize = 8.sp,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
                         color = if (index == metadataIndex) {
                             MaterialTheme.colorScheme.onPrimary
                         } else {
@@ -323,7 +328,10 @@ private fun MapLayerRoundSlider(
             modifier = Modifier.fillMaxWidth()
         ) {
             SliderSwitch(
-                checked = state, onCheckedChange = setState
+                checked = state,
+                onCheckedChange = setState,
+                width = 64.dp,
+                height = 32.dp
             )
         }
     }
