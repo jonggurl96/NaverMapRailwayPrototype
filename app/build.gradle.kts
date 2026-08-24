@@ -57,4 +57,6 @@ dependencies {
     implementation(libs.naver.map.compose)
 
     implementation(libs.play.services.location)
+
+    implementation(libs.kotlinx.serialization.json)
 }

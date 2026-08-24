@@ -224,6 +224,7 @@ fun PrototypeApp(
                 .padding(innerPadding),
             mapType = mapType,
             isDarkMode = isDarkMode,
+            railwayVisible = railwayVisible,
             centerLocation = currentLocation
         )
     }
