@@ -59,4 +59,10 @@ dependencies {
     implementation(libs.play.services.location)
 
     implementation(libs.kotlinx.serialization.json)
+
+    implementation(libs.lifecycle.viewmodel.compose)
+    implementation(libs.lifecycle.runtime.compose)
+    implementation(libs.retrofit)
+    implementation(libs.kotlinx.coroutines.android)
+
 }

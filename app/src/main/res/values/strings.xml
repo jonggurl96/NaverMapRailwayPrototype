@@ -6,4 +6,10 @@
     <!-- 대전역 중심 좌표 -->
     <string name="center_lon">126.855280</string>
     <string name="center_lat">37.561110</string>
+
+    <!-- 초단기예보 API KEY -->
+    <string name="vilage_fcst_key">Rj9fuQ0SJgPiFcKSEHTydhj5G81S26TCo2rriXSPt0gFcUp5WeLBWlAnyuaswUgzaQ%2BU1UBv5H1rwAPumDHBHA%3D%3D</string>
+
+    <!-- 초단기에보 API URL -->
+    <string name="vilage_fcst_url">https://apis.data.go.kr/1360000/VilageFcstInfoService_2.0/getUltraSrtFcst</string>
 </resources>

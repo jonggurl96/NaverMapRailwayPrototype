@@ -1,4 +1,4 @@
-package com.example.prototype.map.layers
+package com.example.prototype.feature.map.ui
 
 import android.location.Location
 import androidx.compose.runtime.Composable
@@ -13,8 +13,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.example.prototype.R
-import com.example.prototype.core.json.GeoFeature
-import com.example.prototype.core.json.parseGeoJson
+import com.example.prototype.data.local.geojson.GeoFeature
+import com.example.prototype.data.local.geojson.parseGeoJson
 import com.naver.maps.geometry.LatLng
 import com.naver.maps.map.CameraPosition
 import com.naver.maps.map.compose.ExperimentalNaverMapApi
@@ -32,11 +32,12 @@ import kotlinx.coroutines.withContext
 
 @OptIn(ExperimentalNaverMapApi::class)
 @Composable
-fun RailwayWeatherMapScreen(
+fun MapScreen(
     modifier: Modifier,
     mapType: MapType = MapType.Basic,
     isDarkMode: Boolean = false,
     railwayVisible: Boolean = false,
+    locationVisible: Boolean = false,
     centerLocation: Location?
 ) {
     val context = LocalContext.current
@@ -77,10 +78,12 @@ fun RailwayWeatherMapScreen(
         cameraPositionState = cameraPositionState,
         properties = properties,
     ) {
-        Marker(
-            state = rememberUpdatedMarkerState(position = center),
-            captionText = "현재 위치",
-        )
+        if (locationVisible) {
+            Marker(
+                state = rememberUpdatedMarkerState(position = center),
+                captionText = "현재 위치",
+            )
+        }
 
         if (railwayVisible) {
             features.forEach { feature ->

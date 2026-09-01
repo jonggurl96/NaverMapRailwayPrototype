@@ -1,4 +1,4 @@
-package com.example.prototype.map.fab
+package com.example.prototype.feature.map.ui.component
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border

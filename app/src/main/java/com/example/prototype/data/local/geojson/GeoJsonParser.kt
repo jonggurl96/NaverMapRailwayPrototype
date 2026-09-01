@@ -1,4 +1,4 @@
-package com.example.prototype.core.json
+package com.example.prototype.data.local.geojson
 
 import com.naver.maps.geometry.LatLng
 import kotlinx.serialization.json.Json.Default.parseToJsonElement
