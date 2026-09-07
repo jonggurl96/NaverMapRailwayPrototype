@@ -18,10 +18,14 @@ import com.google.android.gms.location.FusedLocationProviderClient
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
 import com.google.android.gms.tasks.CancellationTokenSource
+import dagger.hilt.android.AndroidEntryPoint
 
+/** Hilt가 Compose 화면과 ViewModel에 의존성을 제공할 수 있도록 하는 Activity 진입점이다. */
+@AndroidEntryPoint
 class MainActivity : ComponentActivity() {
 
     private lateinit var fusedClient: FusedLocationProviderClient
+    private var pendingLocationCallback: (Location) -> Unit = {}
 
     private val locationPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -30,8 +34,12 @@ class MainActivity : ComponentActivity() {
         val approximateGranted = permissions[Manifest.permission.ACCESS_COARSE_LOCATION] == true
 
         if (preciseGranted || approximateGranted) {
-            fetchCurrentLocation()
+            // 권한 요청 전에 보관한 콜백으로 위치를 전달해 ViewModel 갱신이 유실되지 않게 한다.
+            val callback = pendingLocationCallback
+            pendingLocationCallback = {}
+            fetchCurrentLocation(callback)
         } else {
+            pendingLocationCallback = {}
             Toast.makeText(this, "현재 위치를 가져오려면 위치 권한이 필요합니다.", Toast.LENGTH_SHORT).show()
         }
 
@@ -56,6 +64,8 @@ class MainActivity : ComponentActivity() {
             return
         }
 
+        // 비동기 권한 승인 이후에도 호출자가 전달한 위치 처리 콜백을 유지한다.
+        pendingLocationCallback = callback
         locationPermissionLauncher.launch(
             arrayOf(
                 Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION

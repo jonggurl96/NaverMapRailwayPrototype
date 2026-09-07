@@ -1,7 +1,7 @@
 package com.example.prototype.data.remote.forecast
 
 import android.util.Log
-import com.example.prototype.data.remote.forecast.ForecastRepository.latestForecast
+import com.example.prototype.data.remote.grid.ApihubGridRepository
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
@@ -12,24 +12,31 @@ import java.time.Duration
 import java.time.ZoneId
 import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
+import javax.inject.Inject
+import javax.inject.Singleton
 import kotlin.time.Duration.Companion.milliseconds
 
 /**
  * 정해진 시각마다 초단기예보를 조회하고 가장 최근 결과를 메모리에 보관한다.
  * 앱 프로세스가 유지되는 동안 최신 결과 하나를 [latestForecast]로 제공한다.
  */
-object ForecastRepository {
-
-    private const val TAG = "ForecastRepository"
-    private const val FORECAST_BASE_MINUTE = 30
-    private const val FETCH_MINUTE = 50
+@Singleton
+class ForecastRepository @Inject constructor(
+    private val forecastModule: ForecastModule,
+    private val apihubGridRepository: ApihubGridRepository
+) {
+    companion object {
+        private const val TAG = "ForecastRepository"
+        private const val FORECAST_BASE_MINUTE = 30
+        private const val FETCH_MINUTE = 50
+    }
 
     // 기상청 발표 시각과 날짜 계산은 단말 설정과 무관하게 한국 표준시를 사용한다.
     private val koreaZone: ZoneId = ZoneId.of("Asia/Seoul")
     private val dateFormatter: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyyMMdd")
     private val timeFormatter: DateTimeFormatter = DateTimeFormatter.ofPattern("HHmm")
 
-    private val _latestForecast = MutableStateFlow<ForecastApiResult?>(null)
+    private val _latestForecast = MutableStateFlow(ForecastApiResult.EMPTY)
 
     /** parse 함수로 변환되어 메모리에 보관된 가장 최근 API 결과다. */
     val latestForecast = _latestForecast.asStateFlow()
@@ -39,9 +46,12 @@ object ForecastRepository {
      * 이 suspend 함수가 실행 중인 코루틴이 취소되면 반복 작업과 대기도 함께 종료된다.
      */
     suspend fun collectForecastEveryHour(
-        gridX: Int,
-        gridY: Int,
+        lon: Double,
+        lat: Double,
     ) {
+        // 경위도를 기상청 격자 좌표로 변환하고 같은 위치의 시간별 예보 요청에 재사용한다.
+        val gridCoord = apihubGridRepository.getGridData(lon = lon, lat = lat)
+
         while (currentCoroutineContext().isActive) {
             val now = ZonedDateTime.now(koreaZone)
             val nextFetchTime = nextFetchTime(now)
@@ -49,7 +59,8 @@ object ForecastRepository {
             // 다음 50분 경계까지 코루틴을 중단하므로 대기 중에는 스레드를 점유하지 않는다.
             delay(Duration.between(now, nextFetchTime).toMillis().coerceAtLeast(0L).milliseconds)
             runCatching {
-                fetchAndStore(gridX = gridX, gridY = gridY)
+                // GridCoord의 x/y를 초단기예보 API가 요구하는 nx/ny 값으로 전달한다.
+                fetchAndStore(gridX = gridCoord.x, gridY = gridCoord.y)
             }.onFailure { error ->
                 // 화면 종료로 취소된 작업은 오류로 처리하지 않고 즉시 상위 코루틴에 전달한다.
                 if (error is CancellationException) throw error
@@ -71,7 +82,7 @@ object ForecastRepository {
             .withNano(0)
             .format(timeFormatter)
 
-        val parsedResult = ForecastModule.fetchForecast(
+        val parsedResult = forecastModule.fetchForecast(
             baseDate = baseDate,
             baseTime = baseTime,
             gridX = gridX,

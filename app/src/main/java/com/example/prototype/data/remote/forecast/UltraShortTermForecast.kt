@@ -2,6 +2,7 @@ package com.example.prototype.data.remote.forecast
 
 import android.util.Log
 import android.util.Xml
+import com.example.prototype.BuildConfig
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.ResponseBody
@@ -10,6 +11,8 @@ import retrofit2.Retrofit
 import retrofit2.http.GET
 import retrofit2.http.Query
 import java.io.InputStream
+import javax.inject.Inject
+import javax.inject.Singleton
 
 enum class VilageFcstCtgry(
     val ctgryNm: String,
@@ -26,30 +29,89 @@ enum class VilageFcstCtgry(
     LGT("낙뢰", "kA(킬로암페어)"),
     VEC("풍향", "deg"),
     WSD("풍속", "m/s");
+
+    companion object {
+        val PRIORITY = listOf(PTY, SKY, LGT, T1H, RN1, UUU, VVV, REH, POP, VEC, WSD)
+    }
 }
 
 fun getFcstCtgryCodeOf(code: String): VilageFcstCtgry? {
     return try {
         VilageFcstCtgry.valueOf(code.uppercase())
-    } catch (iae: IllegalArgumentException) {
+    } catch (_: IllegalArgumentException) {
         null
     }
 
 }
 
+/** 하늘상태(SKY) 코드 */
+enum class SkyCtgry(
+    val ctgryCd: String,
+    val ctgryDesc: String
+) {
+    SUNNY("1", "맑음"),
+    CLOUD("3", "구름많음"),
+    OVERCAST("4", "흐림");
+
+    companion object {
+        val ALL = listOf(SUNNY, CLOUD, OVERCAST)
+
+        fun fromRawValue(rawValue: String?): String {
+            return ALL.firstOrNull { it.ctgryCd == rawValue }?.ctgryDesc ?: ""
+        }
+    }
+}
+
+/** 강수형태(PTY) 코드 */
+enum class PtyCtgry(
+    val ctgryCd: String,
+    val ctgryDesc: String
+) {
+    NONE("0", "없음"),
+    RAIN("1", "비"),
+    RNSN("2", "비/눈"),
+    SNOW("3", "눈"),
+    SCUD("4", "소나기"),
+    RAINDROP("5", "빗방울"),
+    RNSNDROP("6", "빗방울눈날림"),
+    BLOWSNOW("7", "눈날림");
+
+    companion object {
+        val ALL = listOf(NONE, RAIN, RNSN, SNOW, SCUD, RAINDROP, RNSNDROP, BLOWSNOW)
+
+        fun fromRawValue(rawValue: String?): String {
+            return ALL.firstOrNull { it.ctgryCd == rawValue }?.ctgryDesc ?: ""
+        }
+    }
+}
+
 data class ForecastDTO(
     /** 예보 자료구분코드 카테고리 */
-    var category: VilageFcstCtgry,
+    val category: VilageFcstCtgry,
 
     /** 예보 값 */
-    var value: String,
+    val value: String,
+
+    /** 예보 날짜 */
+    val fcstDate: String,
+
+    /** 예보 시간 */
+    val fcstTime: Int,
+
+    val baseDate: String,
+
+    val baseTime: Int,
 )
 
 data class ForecastApiResult(
     val resultCode: String? = null,
     val resultMsg: String? = null,
     val forecastList: List<ForecastDTO>
-)
+) {
+    companion object {
+        val EMPTY = ForecastApiResult(null, null, emptyList())
+    }
+}
 
 interface UltraShortTermForecastService {
 
@@ -74,13 +136,9 @@ interface UltraShortTermForecastService {
 
 }
 
-object ForecastModule {
-
-    private const val BASE_URL =
-        "https://apis.data.go.kr/1360000/VilageFcstInfoService_2.0/"
-
-    private const val API_KEY =
-        "Rj9fuQ0SJgPiFcKSEHTydhj5G81S26TCo2rriXSPt0gFcUp5WeLBWlAnyuaswUgzaQ%2BU1UBv5H1rwAPumDHBHA%3D%3D"
+@Singleton
+class ForecastModule @Inject constructor() {
+    private val apiKey = BuildConfig.VILAGE_FCST_API_KEY
 
     private val forecastApi: UltraShortTermForecastService by lazy {
         // BASE_URL을 지정해 서비스의 상대 경로(getUltraSrtFcst)가 올바른 외부 API URL로 결합된다.
@@ -112,9 +170,12 @@ object ForecastModule {
         require(baseTime.matches(Regex("\\d{4}"))) { "baseTime은 HHmm 형식이어야 합니다." }
         require(gridX >= 0 && gridY >= 0) { "격자 좌표는 0 이상이어야 합니다." }
         require(pageNo > 0 && numberOfRows > 0) { "페이지와 행 개수는 1 이상이어야 합니다." }
+        require(apiKey.isNotBlank()) {
+            "local.properties에 VILAGE_FCST_API_KEY를 설정해야 합니다."
+        }
 
         val responseBody = forecastApi.search(
-            serviceKey = API_KEY,
+            serviceKey = apiKey,
             pageNo = pageNo,
             numberOfRows = numberOfRows,
             dataType = "XML",
@@ -128,6 +189,11 @@ object ForecastModule {
         return withContext(Dispatchers.IO) {
             responseBody.use { body -> parse(body.byteStream()) }
         }
+    }
+
+    private companion object {
+        private const val BASE_URL =
+            "https://apis.data.go.kr/1360000/VilageFcstInfoService_2.0/"
     }
 }
 
@@ -145,31 +211,22 @@ fun parse(inputStream: InputStream): ForecastApiResult {
 
     var baseDate: String? = null
     var baseTime: Int? = null
+
     var fcstDate: String? = null
     var fcstTime: Int? = null
 
     var category: VilageFcstCtgry? = null
-    var value: String? = null
+    var rawValue: String? = null
+    var value: String?
 
     while (eventType != XmlPullParser.END_DOCUMENT) {
         when (eventType) {
             XmlPullParser.START_TAG -> {
                 when (parser.name) {
                     "item" -> {
-                        baseDate = null
-                        baseTime = null
                         fcstDate = null
                         fcstTime = null
                         category = null
-                        value = null
-                    }
-
-                    "baseDate" -> {
-                        baseDate = parser.nextText().trim()
-                    }
-
-                    "baseTime" -> {
-                        baseTime = parser.nextText().toIntOrNull()
                     }
 
                     "category" -> {
@@ -185,7 +242,7 @@ fun parse(inputStream: InputStream): ForecastApiResult {
                     }
 
                     "fcstValue" -> {
-                        value = parser.nextText().trim()
+                        rawValue = parser.nextText().trim()
                     }
 
                     "resultCode" -> {
@@ -195,13 +252,34 @@ fun parse(inputStream: InputStream): ForecastApiResult {
                     "resultMsg" -> {
                         resultMessage = parser.nextText().trim()
                     }
+
+                    "baseDate" -> {
+                        baseDate = parser.nextText().trim()
+                    }
+
+                    "baseTime" -> {
+                        baseTime = parser.nextText().toIntOrNull()
+                    }
                 }
             }
 
             XmlPullParser.END_TAG -> {
                 if (parser.name == "item") {
-                    if (category != null && value != null)
-                        forecastList += ForecastDTO(category, value)
+                    if (category != null && rawValue != null && fcstDate != null && fcstTime != null && baseDate != null && baseTime != null) {
+                        value = when (category) {
+                            VilageFcstCtgry.PTY -> PtyCtgry.fromRawValue(rawValue)
+                            VilageFcstCtgry.SKY -> SkyCtgry.fromRawValue(rawValue)
+                            else -> rawValue
+                        }
+                        forecastList += ForecastDTO(
+                            category,
+                            value,
+                            fcstDate,
+                            fcstTime,
+                            baseDate,
+                            baseTime
+                        )
+                    }
                 }
             }
         }
@@ -209,6 +287,18 @@ fun parse(inputStream: InputStream): ForecastApiResult {
     }
 
     Log.d("UltraShortTermForecast", forecastList.toString())
+
+    forecastList.sortWith comparator@{ dto1, dto2 ->
+        if (dto1.fcstDate == dto2.fcstDate) {
+            if (dto1.fcstTime == dto2.fcstTime) {
+                return@comparator VilageFcstCtgry.PRIORITY.indexOf(dto1.category) - VilageFcstCtgry.PRIORITY.indexOf(
+                    dto2.category
+                )
+            }
+            return@comparator dto1.fcstTime - dto2.fcstTime
+        }
+        return@comparator dto1.fcstDate.compareTo(dto2.fcstDate)
+    }
 
     return ForecastApiResult(resultCode, resultMessage, forecastList)
 }

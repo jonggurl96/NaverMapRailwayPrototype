@@ -1,7 +1,21 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
+    alias(libs.plugins.hilt.android)
+    alias(libs.plugins.devtools.ksp)
 }
+
+// 커밋에서 제외되는 local.properties에서 외부 API 설정을 읽어 BuildConfig로 전달한다.
+val localProperties = Properties().apply {
+    val propertiesFile = rootProject.file("local.properties")
+    if (propertiesFile.exists()) propertiesFile.inputStream().use { load(it) }
+}
+
+fun localProperty(name: String): String = localProperties.getProperty(name, "")
+    .replace("\\", "\\\\")
+    .replace("\"", "\\\"")
 
 android {
     namespace = "com.example.prototype"
@@ -17,6 +31,18 @@ android {
         versionName = "1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        // API 키가 소스/리소스에 포함되지 않도록 로컬 설정을 빌드 시점에 주입한다.
+        buildConfigField(
+            "String",
+            "VILAGE_FCST_API_KEY",
+            "\"${localProperty("VILAGE_FCST_API_KEY")}\""
+        )
+        buildConfigField(
+            "String",
+            "APIHUB_KMI_API_KEY",
+            "\"${localProperty("APIHUB_KMI_API_KEY")}\""
+        )
     }
 
     buildTypes {
@@ -32,6 +58,7 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 }
 
@@ -64,5 +91,9 @@ dependencies {
     implementation(libs.lifecycle.runtime.compose)
     implementation(libs.retrofit)
     implementation(libs.kotlinx.coroutines.android)
+
+    implementation(libs.hilt.android)
+    implementation(libs.hilt.navigation.compose)
+    ksp(libs.hilt.android.compiler)
 
 }

@@ -23,6 +23,7 @@ MainActivity -> ui -> feature -> data
 ```text
 com.example.prototype
 ├── MainActivity.kt
+├── PrototypeApplication.kt
 ├── core
 │   └── ui
 │       └── component
@@ -41,6 +42,7 @@ com.example.prototype
 │       │   └── MapStyleOption.kt
 │       └── ui
 │           ├── MapScreen.kt
+│           ├── MapViewModel.kt
 │           └── component
 │               ├── ExpandableFabMenu.kt
 │               └── MapControls.kt
@@ -59,7 +61,8 @@ com.example.prototype
 | 파일 | 역할 |
 | --- | --- |
 | `MainActivity.kt` | Activity 생명주기, 위치 권한 요청, `FusedLocationProviderClient` 호출을 담당하고 Compose 콘텐츠를 시작한다. 화면 UI는 포함하지 않는다. |
-| `ui/PrototypeApp.kt` | 앱의 최상위 `Scaffold`, 지도 스타일·레이어·현재 위치 UI 상태를 관리하고 지도 화면과 메뉴를 조합한다. 위치 토글을 끌 때 불필요한 위치 재조회 없이 상태만 초기화한다. |
+| `PrototypeApplication.kt` | `@HiltAndroidApp`으로 앱 전역 Hilt 컴포넌트를 생성한다. |
+| `ui/PrototypeApp.kt` | `hiltViewModel()`로 `MapViewModel`을 가져와 상태를 Lifecycle 기반으로 수집하고, 앱의 최상위 `Scaffold`와 지도 화면 및 메뉴를 조합한다. |
 
 ### 지도 기능
 
@@ -67,6 +70,7 @@ com.example.prototype
 | --- | --- |
 | `feature/map/model/MapStyleOption.kt` | 기본·위성·다크 지도의 표시 이름, Naver `MapType`, 다크 모드 여부를 하나의 enum 모델로 표현한다. 기존 Java식 getter 기반 `MapTypeMetadata`를 대체한다. |
 | `feature/map/ui/MapScreen.kt` | Naver Compose Map을 표시하고 카메라, 현재 위치 마커, GeoJSON 기반 철도 마커·선·폴리곤 오버레이를 렌더링한다. |
+| `feature/map/ui/MapViewModel.kt` | 지도 스타일·레이어·현재 위치를 `MapUiState`로 관리한다. Hilt로 `ForecastRepository`를 주입받아 `viewModelScope`에서 예보 수집을 유지하고 날씨 활성 상태의 결과를 Logcat에 출력한다. |
 | `feature/map/ui/component/ExpandableFabMenu.kt` | 지도 옵션 패널을 열고 닫는 확장형 Floating Action Button을 제공한다. |
 | `feature/map/ui/component/MapControls.kt` | 지도 스타일 선택기와 날씨·철도·위치 레이어 스위치 등 지도 전용 메뉴 UI를 제공한다. |
 
@@ -81,8 +85,8 @@ com.example.prototype
 | 파일 | 역할 |
 | --- | --- |
 | `data/local/geojson/GeoJsonParser.kt` | GeoJSON의 Point, LineString, Polygon, MultiPolygon 모델과 JSON을 해당 모델로 변환하는 파서를 제공한다. 앱 assets의 철도 데이터를 지도 좌표로 바꾼다. |
-| `data/remote/forecast/UltraShortTermForecast.kt` | `BASE_URL`과 `API_KEY`로 기상청 초단기예보 API를 호출하고, 받은 XML 스트림을 `parse`로 변환한다. 예보 카테고리/DTO/API 결과와 Retrofit 서비스 정의도 포함하며 아직 지도 화면과는 연결되지 않았다. |
-| `data/remote/forecast/ForecastRepository.kt` | 앱 실행 중 매시간 50분에 초단기예보를 호출하고, 파싱된 최신 `ForecastApiResult`를 `StateFlow`에 메모리 보관한다. 실패 시 이전 값을 유지하고 다음 시간에 다시 시도한다. |
+| `data/remote/forecast/UltraShortTermForecast.kt` | Hilt 생성자 주입으로 제공되는 원격 데이터 소스다. BuildConfig로 주입된 API 키를 사용해 기상청 API를 호출하고 XML 스트림을 `parse`로 변환한다. |
+| `data/remote/forecast/ForecastRepository.kt` | Hilt 싱글턴으로 제공되며 `ApihubGridRepository`가 경위도에서 변환한 `GridCoord.x/y`를 사용해 매시간 50분 초단기예보를 호출한다. 파싱된 최신 결과는 `StateFlow`에 보관한다. |
 
 ### 디자인 시스템
 
@@ -99,10 +103,11 @@ com.example.prototype
 - `MapTypeMetadata`를 불변 enum인 `MapStyleOption`으로 변경해 인덱스/라벨/지도 설정을 한곳에서 관리한다.
 - 공용 스위치와 지도 전용 컨트롤을 분리해 재사용 경계를 명확히 했다.
 - 로컬 GeoJSON과 원격 기상 API 코드를 각각 `data/local`, `data/remote`로 구분했다.
-- 사용처가 없고 잘못된 구성으로 APK 패키징 충돌을 만들던 Hilt 플러그인 및 의존성을 제거했다. 추후 DI 도입 시 KSP 또는 kapt 설정과 함께 다시 추가해야 한다.
+- Hilt와 KSP를 올바르게 연결하고 `Application → Activity → ViewModel → Repository → 원격 데이터 소스` 생성자 주입 흐름을 구성했다.
+- UI 상태와 예보 수집 생명주기를 `MapViewModel`로 이동해 Composable의 데이터 계층 의존성을 제거했다.
+- 기상 API 키를 버전 관리되는 리소스에서 제외하고 `local.properties`에서 BuildConfig로 주입하도록 변경했다.
 
 ## 후속 확장 권장 사항
 
-- 화면 상태와 위치 요청이 커지면 `MapViewModel`과 불변 `MapUiState`를 추가한다.
-- 기상 API를 실제 연결할 때 DTO를 화면 모델로 변환하는 repository를 두고 API 키는 소스가 아닌 `local.properties` 또는 안전한 서버에서 주입한다.
+- 운영 배포에서는 APK에서 키를 완전히 보호할 수 없으므로 기상 API 호출을 인증된 백엔드 프록시로 이전한다.
 - GeoJSON 로딩을 repository로 감싸면 `MapScreen`에서 파일 I/O를 제거하고 테스트하기 쉬워진다.
